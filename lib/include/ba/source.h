@@ -52,6 +52,17 @@ typedef union ba_source {
 BA_API void ba_source_init(ba_source_t *src);
 
 /**
+ * Initialize the source object with file name.
+ *
+ * The file has to be already available to work properly.
+ *
+ * Initializing an already initialized object might leak resources.
+ *
+ * Returns 0 if succeeded, -1 if failed.
+ */
+BA_API int ba_source_init_file(ba_source_t *src, const char *filename);
+
+/**
  * Initialize the source object with file pointer in `stdio.h`.
  *
  * The source object owns the file pointer afterwards.

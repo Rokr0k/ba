@@ -9,6 +9,17 @@ void ba_source_init(ba_source_t *src) {
   src->type = BA_SOURCE_UNK;
 }
 
+int ba_source_init_file(ba_source_t *src, const char *filename) {
+  if (src == NULL)
+    return -1;
+
+  FILE *fp = fopen(filename, "rb");
+
+  ba_source_init_fp(src, fp);
+
+  return 0;
+}
+
 void ba_source_init_fp(ba_source_t *src, FILE *fp) {
   if (src == NULL)
     return;
