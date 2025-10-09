@@ -1,0 +1,8 @@
+build/
+out/
+
+CMakeCache.txt
+.vs/
+
+.cache/
+.ccls-cache/
