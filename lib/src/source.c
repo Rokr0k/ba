@@ -2,18 +2,128 @@
 #include <stdlib.h>
 #include <string.h>
 
-void ba_source_init(ba_source_t *src) {
-  if (src == NULL)
-    return;
+static void fp_free(void *arg) {
+  FILE *fp = arg;
+  fclose(fp);
+}
 
-  src->type = BA_SOURCE_UNK;
+static int fp_seek(void *arg, uint64_t offset) {
+  FILE *fp = arg;
+
+  if (offset >= 0)
+    return fseek(fp, offset, SEEK_SET);
+  else
+    return fseek(fp, -offset + 1, SEEK_END);
+}
+
+static uint64_t fp_read(void *arg, void *ptr, uint64_t size) {
+  FILE *fp = arg;
+
+  uint64_t cr = 0;
+  uint64_t read;
+  while (size > 0 && (read = fread(ptr, 1, size, fp)) > 0) {
+    ptr += read;
+    size -= read;
+    cr += read;
+  }
+
+  return cr;
+}
+
+struct mem_context {
+  void *ptr;
+  uint64_t size;
+  uint64_t cursor;
+  void (*dealloc)(void *);
+};
+
+static void mem_free(void *arg) {
+  struct mem_context *ctx = arg;
+
+  ctx->dealloc(ctx->ptr);
+
+  free(ctx);
+}
+
+static int mem_seek(void *arg, uint64_t offset) {
+  struct mem_context *ctx = arg;
+
+  if (offset >= 0) {
+    if (offset > ctx->size)
+      return -1;
+    ctx->cursor = offset;
+  } else {
+    if (ctx->size + offset + 1 < 0)
+      return -1;
+    ctx->cursor = ctx->size + offset + 1;
+  }
+  return 0;
+}
+
+static uint64_t mem_read(void *arg, void *ptr, uint64_t size) {
+  struct mem_context *ctx = arg;
+
+  if (ctx->cursor + size > ctx->size)
+    size = ctx->size - ctx->cursor;
+
+  if (size == 0)
+    return 0;
+
+  memcpy(ptr, (const char *)ctx->ptr + ctx->cursor, size);
+  ctx->cursor += size;
+
+  return size;
+}
+
+struct constmem_context {
+  const void *ptr;
+  uint64_t size;
+  uint64_t cursor;
+};
+
+static void constmem_free(void *arg) {
+  struct constmem_context *ctx = arg;
+
+  free(ctx);
+}
+
+static int constmem_seek(void *arg, uint64_t offset) {
+  struct constmem_context *ctx = arg;
+
+  if (offset >= 0) {
+    if (offset > ctx->size)
+      return -1;
+    ctx->cursor = offset;
+  } else {
+    if (ctx->size + offset + 1 < 0)
+      return -1;
+    ctx->cursor = ctx->size + offset + 1;
+  }
+  return 0;
+}
+
+static uint64_t constmem_read(void *arg, void *ptr, uint64_t size) {
+  struct constmem_context *ctx = arg;
+
+  if (ctx->cursor + size > ctx->size)
+    size = ctx->size - ctx->cursor;
+
+  if (size == 0)
+    return 0;
+
+  memcpy(ptr, (const char *)ctx->ptr + ctx->cursor, size);
+  ctx->cursor += size;
+
+  return size;
 }
 
 int ba_source_init_file(ba_source_t *src, const char *filename) {
-  if (src == NULL)
+  if (src == NULL || filename == NULL)
     return -1;
 
   FILE *fp = fopen(filename, "rb");
+  if (fp == NULL)
+    return -1;
 
   ba_source_init_fp(src, fp);
 
@@ -21,180 +131,77 @@ int ba_source_init_file(ba_source_t *src, const char *filename) {
 }
 
 void ba_source_init_fp(ba_source_t *src, FILE *fp) {
-  if (src == NULL)
+  if (src == NULL || fp == NULL)
     return;
 
-  src->fp = (struct ba_source_fp){
-      .type = BA_SOURCE_FP,
-      .fp = fp,
-  };
+  src->free = fp_free;
+  src->seek = fp_seek;
+  src->read = fp_read;
+  src->arg = fp;
 }
 
-void ba_source_init_mem(ba_source_t *src, void *ptr, size_t size,
-                        void (*mesiah)(void *)) {
-  if (src == NULL)
-    return;
+int ba_source_init_mem(ba_source_t *src, void *ptr, uint64_t size,
+                       void (*dealloc)(void *)) {
+  if (src == NULL || ptr == NULL || size == 0)
+    return -1;
 
-  if (mesiah == NULL)
-    mesiah = free;
+  if (dealloc == NULL)
+    dealloc = free;
 
-  src->mem = (struct ba_source_mem){
-      .type = BA_SOURCE_MEM,
-      .ptr = ptr,
-      .size = size,
-      .cursor = 0,
-      .mesiah = mesiah,
-  };
+  struct mem_context *ctx = malloc(sizeof(*ctx));
+  if (ctx == NULL)
+    return -1;
+
+  ctx->ptr = ptr;
+  ctx->size = size;
+  ctx->cursor = 0;
+  ctx->dealloc = dealloc;
+
+  src->free = mem_free;
+  src->seek = mem_seek;
+  src->read = mem_read;
+  src->arg = ctx;
+
+  return 0;
 }
 
-void ba_source_init_constmem(ba_source_t *src, const void *ptr, size_t size) {
-  if (src == NULL)
-    return;
+int ba_source_init_constmem(ba_source_t *src, const void *ptr, uint64_t size) {
+  if (src == NULL || ptr == NULL || size == 0)
+    return -1;
 
-  src->constmem = (struct ba_source_constmem){
-      .type = BA_SOURCE_CONSTMEM,
-      .ptr = ptr,
-      .size = size,
-      .cursor = 0,
-  };
+  struct constmem_context *ctx = malloc(sizeof(*ctx));
+  if (ctx == NULL)
+    return -1;
+
+  ctx->ptr = ptr;
+  ctx->size = size;
+  ctx->cursor = 0;
+
+  src->free = mem_free;
+  src->seek = mem_seek;
+  src->read = mem_read;
+  src->arg = ctx;
+
+  return 0;
 }
 
 void ba_source_free(ba_source_t *src) {
-  if (src == NULL)
+  if (src == NULL || src->free == NULL)
     return;
 
-  switch (src->type) {
-  case BA_SOURCE_FP:
-    fclose(src->fp.fp);
-    break;
-
-  case BA_SOURCE_MEM:
-    src->mem.mesiah(src->mem.ptr);
-    break;
-  }
-
-  ba_source_init(src);
+  src->free(src->arg);
 }
 
-size_t ba_source_seek(ba_source_t *src, off_t offset) {
-  if (src == NULL)
+int ba_source_seek(ba_source_t *src, uint64_t offset) {
+  if (src == NULL || src->seek == NULL)
     return -1;
 
-  switch (src->type) {
-  case BA_SOURCE_FP: {
-    int whence = SEEK_SET;
-
-    if (offset < 0) {
-      offset = -offset;
-      whence = SEEK_END;
-    }
-
-    if (fseek(src->fp.fp, offset, whence))
-      return -1;
-
-    return ba_source_tell(src);
-  }
-
-  case BA_SOURCE_MEM: {
-    if (offset < 0)
-      offset = src->mem.size + offset;
-
-    if (offset < 0 || offset >= src->mem.size)
-      return -1;
-
-    src->mem.cursor = offset;
-
-    return 0;
-  }
-
-  case BA_SOURCE_CONSTMEM: {
-    if (offset < 0)
-      offset = src->constmem.size + offset;
-
-    if (offset < 0 || offset >= src->constmem.size)
-      return -1;
-
-    src->constmem.cursor = offset;
-
-    return 0;
-  }
-
-  default:
-    return -1;
-  }
+  return src->seek(src->arg, offset);
 }
 
-size_t ba_source_tell(ba_source_t *src) {
-  if (src == NULL)
-    return -1;
-
-  switch (src->type) {
-  case BA_SOURCE_FP: {
-    long res = ftell(src->fp.fp);
-    if (res == -1L)
-      return -1;
-    return res;
-  }
-
-  case BA_SOURCE_MEM:
-    return src->mem.cursor;
-
-  case BA_SOURCE_CONSTMEM:
-    return src->constmem.cursor;
-
-  default:
-    return -1;
-  }
-}
-
-size_t ba_source_read(ba_source_t *src, void *ptr, size_t size) {
-  if (src == NULL || ptr == NULL)
-    return -1;
-
-  if (size == 0)
+size_t ba_source_read(ba_source_t *src, void *ptr, uint64_t size) {
+  if (src == NULL || src->read == NULL)
     return 0;
 
-  switch (src->type) {
-  case BA_SOURCE_FP: {
-    size_t read = fread(ptr, 1, size, src->fp.fp);
-
-    if (read == 0 && ferror(src->fp.fp))
-      return -1;
-
-    return read;
-  }
-
-  case BA_SOURCE_MEM: {
-    size_t read = size;
-    if (src->mem.cursor + read > src->mem.size)
-      read = src->mem.size - src->mem.cursor;
-
-    if (read == 0)
-      return 0;
-
-    memcpy(ptr, src->mem.ptr + src->mem.cursor, read);
-
-    src->mem.cursor += read;
-
-    return read;
-  }
-
-  case BA_SOURCE_CONSTMEM: {
-    size_t read = size;
-    if (src->constmem.cursor + read > src->constmem.size)
-      read = src->constmem.size - src->constmem.cursor;
-
-    if (read == 0)
-      return 0;
-
-    memcpy(ptr, src->constmem.ptr + src->constmem.cursor, read);
-
-    src->constmem.cursor += read;
-
-    return read;
-  }
-
-  default:
-    return -1;
-  }
+  return src->read(src->arg, ptr, size);
 }

@@ -2,129 +2,52 @@
 #define BA_SOURCE_H
 
 #include "exports.h"
+#include <stdint.h>
 #include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef int ba_source_type_t;
+typedef struct ba_source {
+  /**
+   * Free all resources.
+   */
+  void (*free)(void *arg);
+  /**
+   * Negative offset means from the end of the source.
+   *
+   * Returns 0 if succeeded, -1 if failed.
+   */
+  int (*seek)(void *arg, uint64_t offset);
+  /**
+   * Read bytes from the source.
+   *
+   * Returns size of bytes actually read, 0 if EOF or failed.
+   */
+  uint64_t (*read)(void *arg, void *ptr, uint64_t size);
 
-#define BA_SOURCE_UNK 0
-#define BA_SOURCE_FP 1
-#define BA_SOURCE_MEM 2
-#define BA_SOURCE_CONSTMEM 3
-
-struct ba_source_fp {
-  ba_source_type_t type;
-  FILE *fp;
-};
-
-struct ba_source_constmem {
-  ba_source_type_t type;
-  const void *ptr;
-  size_t size;
-  size_t cursor;
-};
-
-struct ba_source_mem {
-  ba_source_type_t type;
-  void *ptr;
-  size_t size;
-  size_t cursor;
-  void (*mesiah)(void *);
-};
-
-typedef union ba_source {
-  ba_source_type_t type;
-  struct ba_source_fp fp;
-  struct ba_source_mem mem;
-  struct ba_source_constmem constmem;
+  /**
+   * Pointer to the resources you will access.
+   */
+  void *arg;
 } ba_source_t;
 
-/**
- * Initialize the source object with default values.
- *
- * Source object initialized with this function is invalid for any operations.
- *
- * Initializing an already initialized object might leak resources.
- */
-BA_API void ba_source_init(ba_source_t *src);
-
-/**
- * Initialize the source object with file name.
- *
- * The file has to be already available to work properly.
- *
- * Initializing an already initialized object might leak resources.
- *
- * Returns 0 if succeeded, -1 if failed.
- */
 BA_API int ba_source_init_file(ba_source_t *src, const char *filename);
 
-/**
- * Initialize the source object with file pointer in `stdio.h`.
- *
- * The source object owns the file pointer afterwards.
- *
- * Initializing an already initialized object might leak resources.
- */
 BA_API void ba_source_init_fp(ba_source_t *src, FILE *fp);
 
-/**
- * Initialize the source object with memory.
- *
- * Operations might cause segfault if you give wrong pointer and/or size.
- *
- * The source object owns the memory afterwards.
- * If `mesiah` is NULL, it uses `free` from `stdlib.h`.
- *
- * Initializing an already initialized object might leak resources.
- */
-BA_API void ba_source_init_mem(ba_source_t *src, void *ptr, size_t size,
-                               void (*mesiah)(void *));
+BA_API int ba_source_init_mem(ba_source_t *src, void *ptr, uint64_t size,
+                              void (*dealloc)(void *));
 
-/**
- * Initialize the source object with memory.
- *
- * Operations might cause segfault if you give wrong pointer and/or size.
- * The memory destination has to be kept alive while you use the source object.
- *
- * Initializing an already initialized object might leak resources.
- */
-BA_API void ba_source_init_constmem(ba_source_t *src, const void *ptr,
-                                    size_t size);
+BA_API int ba_source_init_constmem(ba_source_t *src, const void *ptr,
+                                   uint64_t size);
 
-/**
- * Release resources used for source object.
- */
 BA_API void ba_source_free(ba_source_t *src);
 
-/**
- * Seek to certain offset in source.
- *
- * Negative value means from end of the source.
- *
- * Returns new position if succeeded, `(size_t)-1` if failed.
- */
-BA_API size_t ba_source_seek(ba_source_t *src, off_t offset);
+BA_API int ba_source_seek(ba_source_t *src, uint64_t offset);
 
-/**
- * Get current position in source.
- *
- * Returns current position if succeeded, `(size_t)-1` if failed.
- */
-BA_API size_t ba_source_tell(ba_source_t *src);
-
-/**
- * Read memory from source.
- *
- * Might cause segfault if you give wrong `ptr`, or the allocated size is less
- * than `size`.
- *
- * Returns number of bytes actually read, `0` if EOF, `(size_t)-1` if failed.
- */
-BA_API size_t ba_source_read(ba_source_t *src, void *ptr, size_t size);
+BA_API size_t ba_source_read(ba_source_t *src, void *ptr, uint64_t size);
 
 #ifdef __cplusplus
 }

@@ -10,9 +10,10 @@ option(BUILD_SHARED_LIBS "Build shared libs" ON)
 find_package(ZLIB)
 
 add_subdirectory("lib")
-add_subdirectory("exe")
+add_subdirectory("bin")
 
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 install(
     TARGETS ba app
@@ -28,8 +29,6 @@ install(
     NAMESPACE BA::
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ba"
 )
-
-include(CMakePackageConfigHelpers)
 
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/baConfigVersion.cmake"
