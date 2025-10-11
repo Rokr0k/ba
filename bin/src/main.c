@@ -1,4 +1,4 @@
-#include <ba/archive.h>
+#include <ba/writer.h>
 #include <getopt.h>
 #include <stdlib.h>
 
