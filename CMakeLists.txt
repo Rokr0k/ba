@@ -7,8 +7,6 @@ project(BA
 
 option(BUILD_SHARED_LIBS "Build shared libs" ON)
 
-find_package(ZLIB)
-
 add_subdirectory("lib")
 add_subdirectory("bin")
 

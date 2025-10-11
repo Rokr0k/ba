@@ -23,5 +23,7 @@ uint64_t ba_hash(const char *str) {
     str += 8;
   }
 
+  h |= (1ULL << 63);
+
   return h;
 }

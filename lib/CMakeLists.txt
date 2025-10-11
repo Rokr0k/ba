@@ -2,7 +2,6 @@ add_library(ba
     "src/archive.c"
     "src/source.c"
     "src/hash.c"
-    "src/tree.c"
 )
 
 set_target_properties(ba PROPERTIES
@@ -20,12 +19,6 @@ target_sources(ba
     "include/ba/source.h"
 )
 
-if(ZLIB_FOUND)
-
-    target_link_libraries(ba PRIVATE ZLIB::ZLIB)
-
-    target_compile_definitions(ba PRIVATE BA_FOUND_ZLIB)
-
-endif(ZLIB_FOUND)
+target_compile_definitions(ba PRIVATE _FILE_OFFSET_BITS=64)
 
 add_library(BA::BA ALIAS ba)
