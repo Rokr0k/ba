@@ -2,18 +2,26 @@
 #include "headers.h"
 #include "signature.h"
 #include <ba/writer.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+
+struct ba_entry_column {
+  uint64_t key;
+  ba_source_t src;
+};
 
 struct ba_writer {
   struct ba_archive_header header;
   uint32_t entry_cap;
-  char **entries;
+  struct ba_entry_column *entries;
 };
 
 int ba_writer_alloc(ba_writer_t **wr) {
-  if (wr == NULL)
+  if (wr == NULL) {
+    errno = EINVAL;
     return -1;
+  }
 
   *wr = calloc(1, sizeof(**wr));
   if (*wr == NULL)
@@ -33,11 +41,13 @@ int ba_writer_alloc(ba_writer_t **wr) {
 }
 
 void ba_writer_free(ba_writer_t **wr) {
-  if (wr == NULL || *wr == NULL)
+  if (wr == NULL || *wr == NULL) {
+    errno = EINVAL;
     return;
+  }
 
   for (uint32_t i = 0; i < (*wr)->header.entry_size; i++)
-    free((*wr)->entries[i]);
+    ba_source_free(&(*wr)->entries[i].src);
 
   free((*wr)->entries);
 
@@ -45,13 +55,16 @@ void ba_writer_free(ba_writer_t **wr) {
   *wr = NULL;
 }
 
-int ba_writer_add(ba_writer_t *wr, const char *entry) {
-  if (wr == NULL || entry == NULL)
+int ba_writer_add(ba_writer_t *wr, const char *entry, ba_source_t *src) {
+  if (wr == NULL || entry == NULL || src == NULL) {
+    errno = EINVAL;
     return -1;
+  }
 
   if (wr->header.entry_size >= wr->entry_cap) {
     uint32_t new_cap = wr->entry_cap << 1;
-    char **new_entries = realloc(wr->entries, new_cap);
+    struct ba_entry_column *new_entries =
+        realloc(wr->entries, new_cap * sizeof(*wr->entries));
     if (new_entries == NULL)
       return -1;
 
@@ -59,13 +72,10 @@ int ba_writer_add(ba_writer_t *wr, const char *entry) {
     wr->entry_cap = new_cap;
   }
 
-  size_t len = strlen(entry);
+  wr->entries[wr->header.entry_size].key = ba_hash(entry);
+  wr->entries[wr->header.entry_size].src = *src;
 
-  wr->entries[wr->header.entry_size] = malloc(len);
-  if (wr->entries[wr->header.entry_size] == NULL)
-    return -1;
-
-  strncpy(wr->entries[wr->header.entry_size], entry, len);
+  ba_source_init(src);
 
   wr->header.entry_size++;
 
@@ -73,8 +83,10 @@ int ba_writer_add(ba_writer_t *wr, const char *entry) {
 }
 
 int ba_writer_write(ba_writer_t *wr, ba_source_t *src) {
-  if (wr == NULL || src == NULL)
+  if (wr == NULL || src == NULL) {
+    errno = EINVAL;
     return -1;
+  }
 
   uint64_t content_offset =
       sizeof(wr->header) +
@@ -90,8 +102,7 @@ int ba_writer_write(ba_writer_t *wr, ba_source_t *src) {
 
   uint32_t errors = 0;
   for (uint32_t i = 0; i < wr->header.entry_size; i++) {
-    FILE *fp = fopen(wr->entries[i + errors], "rb");
-    if (fp == NULL) {
+    if (ba_source_seek(&wr->entries[i + errors].src, 0, SEEK_SET) < 0) {
       i--;
       wr->header.entry_size--;
       errors++;
@@ -101,7 +112,8 @@ int ba_writer_write(ba_writer_t *wr, ba_source_t *src) {
     char buffer[1 << 16];
     size_t read;
     uint64_t cr = 0;
-    while ((read = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
+    while ((read = ba_source_read(&wr->entries[i + errors].src, buffer,
+                                  sizeof(buffer))) > 0) {
       if (ba_source_write(src, buffer, read) < 0) {
         free(entries);
         return -1;
@@ -110,9 +122,7 @@ int ba_writer_write(ba_writer_t *wr, ba_source_t *src) {
       cr += read;
     }
 
-    fclose(fp);
-
-    entries[i].key = ba_hash(wr->entries[i + errors]);
+    entries[i].key = wr->entries[i + errors].key;
     entries[i].offset = content_offset;
     entries[i].size = cr;
 

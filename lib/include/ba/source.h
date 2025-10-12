@@ -47,6 +47,8 @@ typedef struct ba_source {
   void *arg;
 } ba_source_t;
 
+BA_API void ba_source_init(ba_source_t *src);
+
 BA_API int ba_source_init_file(ba_source_t *src, const char *filename);
 
 BA_API void ba_source_init_fp(ba_source_t *src, FILE *fp);

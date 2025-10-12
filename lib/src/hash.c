@@ -15,7 +15,7 @@ uint64_t ba_hash(const char *str) {
       if (!zero)
         n |= str[i];
 
-      n >>= sizeof(uint64_t);
+      n <<= sizeof(uint64_t);
     }
 
     h ^= n;

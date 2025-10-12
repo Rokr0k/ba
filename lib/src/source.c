@@ -1,4 +1,5 @@
 #include <ba/source.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -63,8 +64,10 @@ static int mem_seek(void *arg, int64_t offset, int whence) {
 
   switch (whence) {
   case SEEK_SET:
-    if (offset < 0)
+    if (offset < 0) {
+      errno = EINVAL;
       return -1;
+    }
 
     if (offset > ctx->size) {
       void *new_ptr = realloc(ctx->ptr, offset);
@@ -82,8 +85,10 @@ static int mem_seek(void *arg, int64_t offset, int whence) {
     return 0;
 
   case SEEK_CUR:
-    if (ctx->cursor < -offset)
+    if (ctx->cursor < -offset) {
+      errno = EINVAL;
       return -1;
+    }
 
     if (offset + ctx->cursor > ctx->size) {
       void *new_ptr = realloc(ctx->ptr, offset + ctx->cursor);
@@ -101,8 +106,10 @@ static int mem_seek(void *arg, int64_t offset, int whence) {
     return 0;
 
   case SEEK_END:
-    if (ctx->size < -offset)
+    if (ctx->size < -offset) {
+      errno = EINVAL;
       return -1;
+    }
 
     if (offset > 0) {
       void *new_ptr = realloc(ctx->ptr, offset + ctx->size);
@@ -120,6 +127,7 @@ static int mem_seek(void *arg, int64_t offset, int whence) {
     return 0;
 
   default:
+    errno = EINVAL;
     return -1;
   }
 }
@@ -162,9 +170,25 @@ static int mem_write(void *arg, const void *ptr, uint64_t size) {
   return 0;
 }
 
+void ba_source_init(ba_source_t *src) {
+  if (src == NULL) {
+    errno = EINVAL;
+    return;
+  }
+
+  src->free = NULL;
+  src->seek = NULL;
+  src->tell = NULL;
+  src->read = NULL;
+  src->write = NULL;
+  src->arg = NULL;
+}
+
 int ba_source_init_file(ba_source_t *src, const char *filename) {
-  if (src == NULL || filename == NULL)
+  if (src == NULL || filename == NULL) {
+    errno = EINVAL;
     return -1;
+  }
 
   FILE *fp = fopen(filename, "r+b");
   if (fp == NULL)
@@ -176,8 +200,10 @@ int ba_source_init_file(ba_source_t *src, const char *filename) {
 }
 
 void ba_source_init_fp(ba_source_t *src, FILE *fp) {
-  if (src == NULL || fp == NULL)
+  if (src == NULL || fp == NULL) {
+    errno = EINVAL;
     return;
+  }
 
   src->free = fp_free;
   src->seek = fp_seek;
@@ -188,8 +214,10 @@ void ba_source_init_fp(ba_source_t *src, FILE *fp) {
 }
 
 int ba_source_init_mem(ba_source_t *src, const void *ptr, uint64_t size) {
-  if (src == NULL || ptr == NULL || size == 0)
+  if (src == NULL || ptr == NULL || size == 0) {
+    errno = EINVAL;
     return -1;
+  }
 
   struct mem_context *ctx = malloc(sizeof(*ctx));
   if (ctx == NULL)
@@ -217,43 +245,48 @@ int ba_source_init_mem(ba_source_t *src, const void *ptr, uint64_t size) {
 }
 
 void ba_source_free(ba_source_t *src) {
-  if (src == NULL || src->free == NULL)
+  if (src == NULL || src->free == NULL) {
+    errno = EINVAL;
     return;
+  }
 
   src->free(src->arg);
 
-  src->free = NULL;
-  src->seek = NULL;
-  src->tell = NULL;
-  src->read = NULL;
-  src->write = NULL;
-  src->arg = NULL;
+  ba_source_init(src);
 }
 
 int ba_source_seek(ba_source_t *src, int64_t offset, int whence) {
-  if (src == NULL || src->seek == NULL)
+  if (src == NULL || src->seek == NULL) {
+    errno = EINVAL;
     return -1;
+  }
 
   return src->seek(src->arg, offset, whence);
 }
 
 int64_t ba_source_tell(ba_source_t *src) {
-  if (src == NULL || src->tell == NULL)
+  if (src == NULL || src->tell == NULL) {
+    errno = EINVAL;
     return -1;
+  }
 
   return src->tell(src->arg);
 }
 
 size_t ba_source_read(ba_source_t *src, void *ptr, uint64_t size) {
-  if (src == NULL || src->read == NULL)
+  if (src == NULL || src->read == NULL) {
+    errno = EINVAL;
     return 0;
+  }
 
   return src->read(src->arg, ptr, size);
 }
 
 int ba_source_write(ba_source_t *src, const void *ptr, uint64_t size) {
-  if (src == NULL || src->write == NULL)
+  if (src == NULL || src->write == NULL) {
+    errno = EINVAL;
     return -1;
+  }
 
   return src->write(src->arg, ptr, size);
 }
