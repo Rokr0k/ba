@@ -45,7 +45,7 @@ static int add_files(ba_writer_t *wr, const char *name) {
     snprintf(path, sizeof(path), "%s/%s", name, entry->d_name);
 
     struct stat st;
-    if (lstat(path, &st) < 0) {
+    if (stat(path, &st) < 0) {
       perror(path);
       continue;
     }
