@@ -59,7 +59,7 @@ static int add_files(ba_writer_t *wr, const char *name) {
         continue;
       }
 
-      if (ba_writer_add(wr, path, &src) < 0) {
+      if (ba_writer_add(wr, path) < 0) {
         perror(path);
         continue;
       }
@@ -72,8 +72,6 @@ static int add_files(ba_writer_t *wr, const char *name) {
 
   return 0;
 }
-
-static int get_file(ba_reader_t *rd, const char *name) { return 0; }
 
 int main(int argc, char **argv) {
   if (argc < 2) {

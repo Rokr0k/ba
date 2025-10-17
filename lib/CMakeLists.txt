@@ -35,4 +35,6 @@ target_sources(ba
 
 target_compile_definitions(ba PRIVATE _FILE_OFFSET_BITS=64)
 
+target_link_libraries(ba PRIVATE ZLIB::ZLIB)
+
 add_library(BA::BA ALIAS ba)

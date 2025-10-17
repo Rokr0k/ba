@@ -61,7 +61,7 @@ BA_API int ba_source_seek(ba_source_t *src, int64_t offset, int whence);
 
 BA_API int64_t ba_source_tell(ba_source_t *src);
 
-BA_API size_t ba_source_read(ba_source_t *src, void *ptr, uint64_t size);
+BA_API uint64_t ba_source_read(ba_source_t *src, void *ptr, uint64_t size);
 
 BA_API int ba_source_write(ba_source_t *src, const void *ptr, uint64_t size);
 

@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <zlib.h>
 
 struct ba_reader {
   ba_source_t src;
@@ -82,6 +83,9 @@ int ba_reader_read(ba_reader_t *rd, const char *entry, void **ptr,
     return -1;
   }
 
+  *ptr = NULL;
+  *size = 0;
+
   uint64_t key = ba_hash(entry);
   uint32_t index;
 
@@ -99,21 +103,54 @@ int ba_reader_read(ba_reader_t *rd, const char *entry, void **ptr,
   if (ba_source_seek(&rd->src, header.offset, SEEK_SET) < 0)
     return -1;
 
-  *ptr = malloc(header.size);
-  if (*ptr == NULL)
+  uint8_t *in_buffer = malloc(header.e_size);
+  if (in_buffer == NULL)
     return -1;
-  *size = header.size;
-
-  uint64_t read;
-  if ((read = ba_source_read(&rd->src, *ptr, *size)) == 0) {
-    errno = ENOMSG;
-    free(*ptr);
-    *ptr = NULL;
-    *size = 0;
+  uint8_t *out_buffer = malloc(header.o_size);
+  if (out_buffer == NULL) {
+    free(in_buffer);
     return -1;
   }
 
-  *size = read;
+  uint64_t buffer_size = ba_source_read(&rd->src, in_buffer, header.e_size);
+  if (buffer_size < header.e_size) {
+    free(in_buffer);
+    free(out_buffer);
+    return -1;
+  }
+
+  z_stream strm = {0};
+  strm.next_in = in_buffer;
+  strm.avail_in = buffer_size;
+  strm.next_out = out_buffer;
+  strm.avail_out = header.o_size;
+  switch (inflateInit(&strm)) {
+  case Z_MEM_ERROR:
+    errno = ENOMEM;
+    free(in_buffer);
+    free(out_buffer);
+    return -1;
+
+  case Z_STREAM_ERROR:
+    errno = EINVAL;
+    free(in_buffer);
+    free(out_buffer);
+    return -1;
+
+  case Z_VERSION_ERROR:
+    errno = EBADR;
+    free(in_buffer);
+    free(out_buffer);
+    return -1;
+  }
+
+  inflate(&strm, Z_FINISH);
+
+  *ptr = out_buffer;
+  *size = strm.total_out;
+
+  inflateEnd(&strm);
+  free(in_buffer);
 
   return 0;
 }

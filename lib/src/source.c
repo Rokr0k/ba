@@ -273,7 +273,7 @@ int64_t ba_source_tell(ba_source_t *src) {
   return src->tell(src->arg);
 }
 
-size_t ba_source_read(ba_source_t *src, void *ptr, uint64_t size) {
+uint64_t ba_source_read(ba_source_t *src, void *ptr, uint64_t size) {
   if (src == NULL || src->read == NULL) {
     errno = EINVAL;
     return 0;
