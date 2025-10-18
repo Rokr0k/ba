@@ -1,7 +1,6 @@
 #include "config.h"
 #include <ba/ba.h>
 #include <dirent.h>
-#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
