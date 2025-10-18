@@ -53,12 +53,6 @@ static int add_files(ba_writer_t *wr, const char *name) {
     if (S_ISDIR(st.st_mode)) {
       add_files(wr, path);
     } else {
-      ba_source_t src;
-      if (ba_source_init_file(&src, path) < 0) {
-        perror(path);
-        continue;
-      }
-
       if (ba_writer_add(wr, path) < 0) {
         perror(path);
         continue;
@@ -106,16 +100,7 @@ int main(int argc, char **argv) {
       }
     }
 
-    FILE *fp = fopen(argv[2], "wb");
-    if (fp == NULL) {
-      perror(argv[2]);
-      exit(1);
-    }
-
-    ba_source_t src;
-    ba_source_init_fp(&src, fp);
-
-    if (ba_writer_write(wr, &src) < 0) {
+    if (ba_writer_write(wr, argv[2]) < 0) {
       perror("ba_writer_write");
       exit(1);
     }
@@ -137,21 +122,25 @@ int main(int argc, char **argv) {
       exit(1);
     }
 
-    ba_source_t src;
-    if (ba_source_init_file(&src, argv[2]) < 0) {
-      perror(argv[2]);
-      exit(1);
-    }
-
-    if (ba_reader_open(rd, &src) < 0) {
+    if (ba_reader_open(rd, argv[2]) < 0) {
       perror(argv[2]);
       exit(1);
     }
 
     for (int i = 3; i < argc; i++) {
-      void *ptr;
-      uint64_t size;
-      if (ba_reader_read(rd, argv[i], &ptr, &size) < 0) {
+      uint64_t size = ba_reader_size(rd, argv[i]);
+      if (size == 0) {
+        perror(argv[i]);
+        continue;
+      }
+      void *ptr = malloc(size);
+      if (ptr == NULL) {
+        perror(argv[i]);
+        continue;
+      }
+
+      if (ba_reader_read(rd, argv[i], ptr) < 0) {
+        free(ptr);
         perror(argv[i]);
         continue;
       }
@@ -164,18 +153,20 @@ int main(int argc, char **argv) {
 
       FILE *fp = fopen(name, "wb");
       if (fp == NULL) {
+        free(ptr);
         perror(name);
         continue;
       }
 
-      ba_source_init_fp(&src, fp);
-
-      if (ba_source_write(&src, ptr, size) < 0) {
-        perror(argv[i]);
+      if (fwrite(ptr, 1, size, fp) < size) {
+        fclose(fp);
+        free(ptr);
+        perror(name);
         continue;
       }
 
-      ba_source_free(&src);
+      fclose(fp);
+      free(ptr);
 
       perror(argv[i]);
     }

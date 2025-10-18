@@ -87,130 +87,141 @@ int ba_writer_add(ba_writer_t *wr, const char *filename) {
   return 0;
 }
 
-int ba_writer_write(ba_writer_t *wr, ba_source_t *src) {
-  if (wr == NULL || src == NULL) {
+int ba_writer_write(ba_writer_t *wr, const char *filename) {
+  if (wr == NULL || filename == NULL) {
     errno = EINVAL;
     return -1;
   }
 
-  uint64_t content_offset =
-      sizeof(wr->header) +
-      wr->header.entry_size * sizeof(struct ba_entry_header);
+  FILE *fp = fopen(filename, "wb");
 
-  if (ba_source_seek(src, content_offset, SEEK_SET) < 0)
+  if (fseeko(fp,
+             sizeof(wr->header) +
+                 wr->header.entry_size * sizeof(struct ba_entry_header),
+             SEEK_SET) < 0) {
+    fclose(fp);
     return -1;
+  }
 
-  struct ba_entry_header *entries =
-      calloc(wr->header.entry_size, sizeof(*entries));
-  if (entries == NULL)
+  struct ba_entry_header *entry_headers =
+      calloc(wr->header.entry_size, sizeof(*entry_headers));
+  if (entry_headers == NULL) {
+    fclose(fp);
     return -1;
+  }
 
   z_stream strm = {0};
-  uint32_t errors = 0;
+
   for (uint32_t i = 0; i < wr->header.entry_size; i++) {
-    int fd = open(wr->entries[i + errors].filename, O_RDONLY);
-    if (fd == -1) {
-      wr->header.entry_size--;
-      i--;
-      errors++;
-      continue;
-    }
+    struct ba_entry_column column = wr->entries[i];
+    struct ba_entry_header *header = &entry_headers[i];
 
     struct stat st;
-    if (fstat(fd, &st) == -1) {
-      wr->header.entry_size--;
-      i--;
-      errors++;
-      close(fd);
-      continue;
-    }
-
-    size_t size_in = st.st_size;
-    void *buf_in = mmap(NULL, size_in, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (buf_in == MAP_FAILED) {
-      wr->header.entry_size--;
-      i--;
-      errors++;
-      close(fd);
-      continue;
-    }
-
-    close(fd);
-
-    switch (deflateInit(&strm, Z_DEFAULT_COMPRESSION)) {
-    case Z_MEM_ERROR:
-      free(entries);
-      munmap(buf_in, size_in);
-      errno = ENOMEM;
-      return -1;
-
-    case Z_STREAM_ERROR:
-      free(entries);
-      munmap(buf_in, size_in);
-      errno = EINVAL;
-      return -1;
-
-    case Z_VERSION_ERROR:
-      free(entries);
-      munmap(buf_in, size_in);
-      errno = EBADR;
+    if (stat(column.filename, &st) < 0) {
+      free(entry_headers);
+      fclose(fp);
       return -1;
     }
 
-    size_t size_out = deflateBound(&strm, size_in);
-    void *buf_out = malloc(size_out);
-    if (buf_out == NULL) {
-      free(entries);
-      munmap(buf_in, size_in);
+    FILE *ifp = fopen(column.filename, "rb");
+    if (ifp == NULL) {
+      free(entry_headers);
+      fclose(fp);
+    }
+    uint64_t size_in = st.st_size;
+    void *buffer_in = malloc(size_in);
+    if (buffer_in == NULL) {
+      fclose(ifp);
+      free(entry_headers);
+      fclose(fp);
+      return -1;
+    }
+    if (fread(buffer_in, 1, size_in, ifp) < size_in) {
+      free(buffer_in);
+      fclose(ifp);
+      free(entry_headers);
+      fclose(fp);
+      return -1;
+    }
+    fclose(ifp);
+
+    if (deflateInit(&strm, Z_DEFAULT_COMPRESSION) != Z_OK) {
+      free(buffer_in);
+      free(entry_headers);
+      fclose(fp);
+      return -1;
+    }
+
+    uint64_t size_out = deflateBound(&strm, size_in);
+    void *buffer_out = malloc(size_out);
+    if (buffer_out == NULL) {
       deflateEnd(&strm);
+      free(buffer_in);
+      free(entry_headers);
+      fclose(fp);
       return -1;
     }
 
-    strm.next_in = buf_in;
+    strm.next_in = buffer_in;
     strm.avail_in = size_in;
-    strm.next_out = buf_out;
+    strm.next_out = buffer_out;
     strm.avail_out = size_out;
 
-    deflate(&strm, Z_FINISH);
+    do {
+      int ret = deflate(&strm, Z_FINISH);
+      if (ret == Z_STREAM_END)
+        break;
+      else if (ret != Z_OK) {
+        errno = EIO;
+        deflateEnd(&strm);
+        free(buffer_in);
+        free(buffer_out);
+        free(entry_headers);
+        fclose(fp);
+        return -1;
+      }
+    } while (1);
 
-    if (ba_source_write(src, buf_out, strm.total_out) < 0) {
-      free(entries);
-      munmap(buf_in, size_in);
-      free(buf_out);
+    header->key = column.key;
+    header->offset = ftello(fp);
+    header->o_size = strm.total_in;
+    header->c_size = strm.total_out;
+
+    if (fwrite(buffer_out, 1, header->c_size, fp) < header->c_size) {
       deflateEnd(&strm);
+      free(buffer_in);
+      free(buffer_out);
+      free(entry_headers);
+      fclose(fp);
       return -1;
     }
 
     deflateEnd(&strm);
-
-    munmap(buf_in, size_in);
-    free(buf_out);
-
-    entries[i].key = wr->entries[i + errors].key;
-    entries[i].offset = content_offset;
-    entries[i].e_size = strm.total_out;
-    entries[i].o_size = strm.total_in;
-
-    content_offset += strm.total_out;
+    free(buffer_in);
+    free(buffer_out);
   }
 
-  if (ba_source_seek(src, 0, SEEK_SET) < 0) {
-    free(entries);
+  if (fseek(fp, 0, SEEK_SET) < 0) {
+    free(entry_headers);
+    fclose(fp);
     return -1;
   }
 
-  if (ba_source_write(src, &wr->header, sizeof(wr->header)) < 0) {
-    free(entries);
+  if (fwrite(&wr->header, sizeof(wr->header), 1, fp) < 1) {
+    free(entry_headers);
+    fclose(fp);
     return -1;
   }
 
-  if (ba_source_write(src, entries, wr->header.entry_size * sizeof(*entries)) <
-      0) {
-    free(entries);
+  if (fwrite(entry_headers, sizeof(*entry_headers), wr->header.entry_size, fp) <
+      wr->header.entry_size) {
+    free(entry_headers);
+    fclose(fp);
     return -1;
   }
 
-  free(entries);
+  free(entry_headers);
+  fclose(fp);
 
   return 0;
 }

@@ -11,7 +11,7 @@ struct ba_archive_header {
 struct ba_entry_header {
   uint64_t key;
   uint64_t offset;
-  uint64_t e_size;
+  uint64_t c_size;
   uint64_t o_size;
 };
 
