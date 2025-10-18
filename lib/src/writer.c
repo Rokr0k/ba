@@ -9,6 +9,12 @@
 #include <sys/stat.h>
 #include <zlib.h>
 
+#ifdef _WIN32
+#define fseeko _fseeki64
+#define ftello _ftelli64
+#define strdup _strdup
+#endif
+
 struct ba_entry_column {
   uint64_t key;
   char *filename;
@@ -92,6 +98,8 @@ int ba_writer_write(ba_writer_t *wr, const char *filename) {
   }
 
   FILE *fp = fopen(filename, "wb");
+  if (fp == NULL)
+    return -1;
 
   if (fseeko(fp,
              sizeof(wr->header) +

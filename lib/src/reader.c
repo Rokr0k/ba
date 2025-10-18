@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <zlib.h>
 
+#ifdef _WIN32
+#define fseeko _fseeki64
+#endif
+
 struct ba_reader {
   FILE *fp;
   struct ba_archive_header header;

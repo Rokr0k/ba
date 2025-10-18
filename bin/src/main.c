@@ -1,10 +1,15 @@
 #include "config.h"
 #include <ba/ba.h>
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <dirent.h>
 #include <sys/stat.h>
+#endif
 
 static void print_help(const char *arg0) {
   fprintf(stderr, "Usage: %s <OPERATION> <ARCHIVE_FILE> <ENTRIES>...\n", arg0);
@@ -28,6 +33,43 @@ static void print_version(const char *arg0) {
           BA_VERSION_MINOR(lib_version), BA_VERSION_PATCH(lib_version));
 }
 
+#ifdef _WIN32
+static int add_files(ba_writer_t *wr, const char *name) {
+  WIN32_FIND_DATA ffd;
+  HANDLE hFind = INVALID_HANDLE_VALUE;
+
+  char qp[MAX_PATH];
+  snprintf(qp, sizeof(qp), "%s\\*", name);
+
+  hFind = FindFirstFile(qp, &ffd);
+  if (hFind == INVALID_HANDLE_VALUE) {
+    perror(name);
+    return -1;
+  }
+
+  do {
+    if (strcmp(ffd.cFileName, ".") == 0 || strcmp(ffd.cFileName, "..") == 0)
+      continue;
+
+    char path[MAX_PATH];
+    snprintf(path, sizeof(path), "%s/%s", name, ffd.cFileName);
+
+    if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+      add_files(wr, path);
+    } else {
+      if (ba_writer_add(wr, path) < 0) {
+        FindClose(hFind);
+        perror(path);
+        return -1;
+      }
+    }
+  } while (FindNextFile(hFind, &ffd) != 0);
+
+  FindClose(hFind);
+
+  return 0;
+}
+#else
 static int add_files(ba_writer_t *wr, const char *name) {
   DIR *dir = opendir(name);
   if (dir == NULL) {
@@ -65,6 +107,7 @@ static int add_files(ba_writer_t *wr, const char *name) {
 
   return 0;
 }
+#endif
 
 int main(int argc, char **argv) {
   if (argc < 2) {
