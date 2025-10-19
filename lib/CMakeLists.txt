@@ -10,7 +10,8 @@ add_library(ba
     "src/writer.c"
 )
 
-set_target_properties(ba PROPERTIES
+set_target_properties(ba
+    PROPERTIES
     OUTPUT_NAME "ba"
     EXPORT_NAME "BA"
 )
@@ -24,15 +25,24 @@ target_sources(ba
     "include/ba/exports.h"
     "include/ba/reader.h"
     "include/ba/writer.h"
-    PRIVATE
-    FILE_SET private_headers
-    TYPE HEADERS
-    BASE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
-    "config.h"
+    "include/ba/ba.hpp"
+    "include/ba/reader.hpp"
+    "include/ba/writer.hpp"
 )
 
-target_compile_definitions(ba PRIVATE _FILE_OFFSET_BITS=64)
+target_include_directories(ba
+    PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}"
+)
 
-target_link_libraries(ba PRIVATE ZLIB::ZLIB)
+target_compile_definitions(ba
+    PRIVATE
+    _FILE_OFFSET_BITS=64
+)
+
+target_link_libraries(ba
+    PRIVATE
+    ZLIB::ZLIB
+)
 
 add_library(BA::BA ALIAS ba)

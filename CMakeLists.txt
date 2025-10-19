@@ -7,6 +7,9 @@ project(BA
 
 option(BUILD_SHARED_LIBS "Build shared libs" ON)
 
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
 find_package(ZLIB REQUIRED)
 
 if(WIN32)
@@ -15,9 +18,6 @@ endif(WIN32)
 
 add_subdirectory("lib")
 add_subdirectory("bin")
-
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
 
 install(
     TARGETS ba app

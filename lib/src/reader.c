@@ -77,7 +77,7 @@ int ba_reader_open(ba_reader_t *rd, const char *filename) {
   return 0;
 }
 
-uint64_t ba_reader_size(ba_reader_t *rd, const char *entry) {
+uint64_t ba_reader_size(const ba_reader_t *rd, const char *entry) {
   if (rd == NULL || entry == NULL) {
     errno = EINVAL;
     return 0;

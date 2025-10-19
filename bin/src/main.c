@@ -57,7 +57,7 @@ static int add_files(ba_writer_t *wr, const char *name) {
     if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
       add_files(wr, path);
     } else {
-      if (ba_writer_add(wr, path) < 0) {
+      if (ba_writer_add_file(wr, path) < 0) {
         FindClose(hFind);
         perror(path);
         return -1;
@@ -94,7 +94,7 @@ static int add_files(ba_writer_t *wr, const char *name) {
     if (S_ISDIR(st.st_mode)) {
       add_files(wr, path);
     } else {
-      if (ba_writer_add(wr, path) < 0) {
+      if (ba_writer_add_file(wr, path) < 0) {
         perror(path);
         continue;
       }

@@ -7,12 +7,9 @@ add_executable(app
     "src/main.c"
 )
 
-target_sources(app
+target_include_directories(app
     PRIVATE
-    FILE_SET HEADERS
-    BASE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
-    FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/config.h"
+    "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
 set_target_properties(app PROPERTIES
@@ -20,6 +17,9 @@ set_target_properties(app PROPERTIES
     EXPORT_NAME "APP"
 )
 
-target_link_libraries(app PRIVATE BA::BA)
+target_link_libraries(app
+    PRIVATE
+    BA::BA
+)
 
 add_executable(BA::APP ALIAS app)
