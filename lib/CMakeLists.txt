@@ -5,6 +5,7 @@ configure_file(
 
 add_library(ba
     "src/ba.c"
+    "src/buffer.c"
     "src/reader.c"
     "src/writer.c"
 )
@@ -22,6 +23,7 @@ target_sources(ba
     FILES
     "include/ba/ba.h"
     "include/ba/exports.h"
+    "include/ba/buffer.h"
     "include/ba/reader.h"
     "include/ba/writer.h"
 )

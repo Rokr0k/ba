@@ -13,6 +13,6 @@
 #define BA_VERSION_MINOR(version) ((version >> 16) & 0xff)
 #define BA_VERSION_PATCH(version) ((version >> 8) & 0xff)
 
-BA_API uint32_t ba_version();
+BA_API uint32_t ba_version(void);
 
 #endif

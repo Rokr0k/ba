@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
       }
     }
 
-    if (ba_writer_write(wr, argv[2]) < 0) {
+    if (ba_writer_write_file(wr, argv[2]) < 0) {
       perror("ba_writer_write");
       exit(1);
     }
@@ -167,6 +167,7 @@ int main(int argc, char **argv) {
 
     if (ba_reader_open_file(rd, argv[2]) < 0) {
       perror(argv[2]);
+      ba_reader_free(&rd);
       exit(1);
     }
 
@@ -181,6 +182,8 @@ int main(int argc, char **argv) {
 
       fprintf(stdout, "\"%.*s\": %llu\n", (int)len, name, esize);
     }
+
+    ba_reader_free(&rd);
   }
 
   case 'x': {
@@ -197,6 +200,7 @@ int main(int argc, char **argv) {
 
     if (ba_reader_open_file(rd, argv[2]) < 0) {
       perror(argv[2]);
+      ba_reader_free(&rd);
       exit(1);
     }
 

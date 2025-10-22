@@ -16,8 +16,7 @@
 struct ba_entry_column {
   char *name;
   uint64_t nlen;
-  void *ptr;
-  uint64_t size;
+  ba_buffer_t *buf;
 };
 
 struct ba_writer {
@@ -56,7 +55,7 @@ void ba_writer_free(ba_writer_t **wr) {
 
   for (uint32_t i = 0; i < (*wr)->entry_size; i++) {
     free((*wr)->entries[i].name);
-    free((*wr)->entries[i].ptr);
+    ba_buffer_free(&(*wr)->entries[i].buf);
   }
 
   free((*wr)->entries);
@@ -66,8 +65,8 @@ void ba_writer_free(ba_writer_t **wr) {
 }
 
 int ba_writer_add(ba_writer_t *wr, const char *entry, uint64_t entry_len,
-                  const void *ptr, uint64_t size) {
-  if (wr == NULL || ptr == NULL || size == 0) {
+                  ba_buffer_t *buf) {
+  if (wr == NULL || buf == NULL) {
     errno = EINVAL;
     return -1;
   }
@@ -75,32 +74,40 @@ int ba_writer_add(ba_writer_t *wr, const char *entry, uint64_t entry_len,
   if (entry_len == 0)
     entry_len = strlen(entry);
 
-  struct ba_entry_column col = {0};
-
-  col.name = malloc(entry_len);
-  col.ptr = malloc(size);
-  if (col.name == NULL || col.ptr == NULL) {
-    free(col.name);
-    free(col.ptr);
-    return -1;
-  }
-
-  strncpy(col.name, entry, col.nlen = entry_len);
-  memcpy(col.ptr, ptr, col.size = size);
-
   if (wr->entry_size >= wr->entry_cap) {
     uint32_t new_cap = wr->entry_cap << 1;
     struct ba_entry_column *new_entries =
         realloc(wr->entries, new_cap * sizeof(*wr->entries));
     if (new_entries == NULL) {
-      free(col.name);
-      free(col.ptr);
       return -1;
     }
 
     wr->entries = new_entries;
     wr->entry_cap = new_cap;
   }
+
+  struct ba_entry_column col = {0};
+
+  if (ba_buffer_init(&col.buf) < 0)
+    return -1;
+
+  char buffer[1 << 16];
+  uint64_t read;
+  while ((read = ba_buffer_read(buf, buffer, sizeof(buffer))) > 0) {
+    if (ba_buffer_write(col.buf, buffer, read) < 0) {
+      ba_buffer_free(&col.buf);
+      return -1;
+    }
+  }
+
+  col.name = malloc(entry_len);
+  if (col.name == NULL) {
+    free(col.name);
+    ba_buffer_free(&col.buf);
+    return -1;
+  }
+
+  strncpy(col.name, entry, col.nlen = entry_len);
 
   wr->entries[wr->entry_size++] = col;
 
@@ -113,56 +120,31 @@ int ba_writer_add_file(ba_writer_t *wr, const char *filename) {
     return -1;
   }
 
-  struct stat st;
-  if (stat(filename, &st) < 0)
+  ba_buffer_t *buf;
+  if (ba_buffer_init_file(&buf, filename, "rb") < 0)
     return -1;
 
-  FILE *fp = fopen(filename, "rb");
-  if (fp == NULL)
-    return -1;
-
-  uint64_t size = st.st_size;
-  void *ptr = malloc(size);
-  if (ptr == NULL) {
-    fclose(fp);
+  if (ba_writer_add(wr, filename, 0, buf) < 0) {
+    ba_buffer_free(&buf);
     return -1;
   }
 
-  if (fread(ptr, 1, size, fp) < size) {
-    fclose(fp);
-    free(ptr);
-    return -1;
-  }
-
-  fclose(fp);
-
-  if (ba_writer_add(wr, filename, 0, ptr, size) < 0) {
-    free(ptr);
-    return -1;
-  }
-
-  free(ptr);
+  ba_buffer_free(&buf);
 
   return 0;
 }
 
-int ba_writer_write(ba_writer_t *wr, const char *filename) {
-  if (wr == NULL || filename == NULL) {
+int ba_writer_write(ba_writer_t *wr, ba_buffer_t *buf) {
+  if (wr == NULL || buf == NULL) {
     errno = EINVAL;
     return -1;
   }
 
-  FILE *fp = fopen(filename, "wb");
-  if (fp == NULL)
+  if (ba_buffer_seek(buf,
+                     sizeof(struct ba_archive_header) +
+                         wr->entry_size * sizeof(struct ba_entry_header),
+                     SEEK_SET) < 0)
     return -1;
-
-  if (fseeko(fp,
-             sizeof(struct ba_archive_header) +
-                 wr->entry_size * sizeof(struct ba_entry_header),
-             SEEK_SET) < 0) {
-    fclose(fp);
-    return -1;
-  }
 
   struct ba_archive_header header = {0};
   header.sign = BA_SIGNATURE;
@@ -170,16 +152,12 @@ int ba_writer_write(ba_writer_t *wr, const char *filename) {
 
   struct ba_entry_header *entry_headers =
       calloc(wr->entry_size, sizeof(*entry_headers));
-  if (entry_headers == NULL) {
-    fclose(fp);
+  if (entry_headers == NULL)
     return -1;
-  }
 
   for (uint32_t i = 0; i < wr->entry_size; i++) {
-    if (fwrite(wr->entries[i].name, 1, wr->entries[i].nlen, fp) <
-        wr->entries[i].nlen) {
+    if (ba_buffer_write(buf, wr->entries[i].name, wr->entries[i].nlen) < 0) {
       free(entry_headers);
-      fclose(fp);
       return -1;
     }
 
@@ -192,20 +170,41 @@ int ba_writer_write(ba_writer_t *wr, const char *filename) {
   z_stream strm = {0};
 
   for (uint32_t i = 0; i < wr->entry_size; i++) {
-    if (deflateInit(&strm, Z_DEFAULT_COMPRESSION) != Z_OK) {
+    int64_t size = ba_buffer_size(wr->entries[i].buf);
+    if (size == -1LL) {
       free(entry_headers);
-      fclose(fp);
       return -1;
     }
 
-    uint64_t size_in = wr->entries[i].size;
-    void *buffer_in = wr->entries[i].ptr;
+    if (ba_buffer_seek(wr->entries[i].buf, 0, SEEK_SET) < 0) {
+      free(entry_headers);
+      return -1;
+    }
+    void *data = malloc(size);
+    if (data == NULL) {
+      free(entry_headers);
+      return -1;
+    }
+    if (ba_buffer_read(wr->entries[i].buf, data, size) < size) {
+      free(data);
+      free(entry_headers);
+      return -1;
+    }
+
+    if (deflateInit(&strm, Z_DEFAULT_COMPRESSION) != Z_OK) {
+      free(data);
+      free(entry_headers);
+      return -1;
+    }
+
+    uint64_t size_in = size;
+    void *buffer_in = data;
     uint64_t size_out = deflateBound(&strm, size_in);
     void *buffer_out = malloc(size_out);
     if (buffer_out == NULL) {
       deflateEnd(&strm);
+      free(data);
       free(entry_headers);
-      fclose(fp);
       return -1;
     }
 
@@ -222,50 +221,66 @@ int ba_writer_write(ba_writer_t *wr, const char *filename) {
         errno = EIO;
         deflateEnd(&strm);
         free(buffer_out);
+        free(data);
         free(entry_headers);
-        fclose(fp);
         return -1;
       }
     } while (1);
 
-    entry_headers[i].boff = ftello(fp);
+    entry_headers[i].boff = ba_buffer_tell(buf);
     entry_headers[i].bosz = strm.total_in;
     entry_headers[i].bcsz = strm.total_out;
 
-    if (fwrite(buffer_out, 1, entry_headers[i].bcsz, fp) <
-        entry_headers[i].bcsz) {
+    if (ba_buffer_write(buf, buffer_out, entry_headers[i].bcsz) < 0) {
       deflateEnd(&strm);
       free(buffer_out);
+      free(data);
       free(entry_headers);
-      fclose(fp);
       return -1;
     }
 
     deflateEnd(&strm);
     free(buffer_out);
+    free(data);
   }
 
-  if (fseek(fp, 0, SEEK_SET) < 0) {
+  if (ba_buffer_seek(buf, 0, SEEK_SET) < 0) {
     free(entry_headers);
-    fclose(fp);
     return -1;
   }
 
-  if (fwrite(&header, sizeof(header), 1, fp) < 1) {
+  if (ba_buffer_write(buf, &header, sizeof(header)) < 0) {
     free(entry_headers);
-    fclose(fp);
     return -1;
   }
 
-  if (fwrite(entry_headers, sizeof(*entry_headers), wr->entry_size, fp) <
-      wr->entry_size) {
+  if (ba_buffer_write(buf, entry_headers,
+                      wr->entry_size * sizeof(*entry_headers)) < 0) {
     free(entry_headers);
-    fclose(fp);
     return -1;
   }
 
   free(entry_headers);
-  fclose(fp);
+
+  return 0;
+}
+
+int ba_writer_write_file(ba_writer_t *wr, const char *filename) {
+  if (wr == NULL || filename == NULL) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  ba_buffer_t *buf;
+  if (ba_buffer_init_file(&buf, filename, "wb") < 0)
+    return -1;
+
+  if (ba_writer_write(wr, buf) < 0) {
+    ba_buffer_free(&buf);
+    return -1;
+  }
+
+  ba_buffer_free(&buf);
 
   return 0;
 }

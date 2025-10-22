@@ -1,6 +1,7 @@
 #ifndef BA_READER_H
 #define BA_READER_H
 
+#include "buffer.h"
 #include "exports.h"
 #include <stdint.h>
 
@@ -17,7 +18,7 @@ typedef uint32_t ba_id_t;
 BA_API int ba_reader_alloc(ba_reader_t **rd);
 BA_API void ba_reader_free(ba_reader_t **rd);
 
-BA_API int ba_reader_open(ba_reader_t *rd, const void *ptr, uint64_t size);
+BA_API int ba_reader_open(ba_reader_t *rd, ba_buffer_t *buf);
 BA_API int ba_reader_open_file(ba_reader_t *rd, const char *filename);
 
 BA_API uint32_t ba_reader_size(const ba_reader_t *rd);
