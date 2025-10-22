@@ -18,7 +18,8 @@ static void print_help(const char *arg0) {
   fprintf(stderr, "  h  Print helpful message.\n");
   fprintf(stderr, "  v  Print version information.\n");
   fprintf(stderr, "  c  Create archive file.\n");
-  fprintf(stderr, "  x  Extract from archive file.\n");
+  fprintf(stderr, "  l  List entries from archive file.\n");
+  fprintf(stderr, "  x  Extract entries from archive file.\n");
   fprintf(stderr, "\n");
 }
 
@@ -152,6 +153,36 @@ int main(int argc, char **argv) {
     exit(0);
   }
 
+  case 'l': {
+    if (argc < 3) {
+      print_help(argv[0]);
+      exit(1);
+    }
+
+    ba_reader_t *rd;
+    if (ba_reader_alloc(&rd) < 0) {
+      perror("ba_reader_alloc");
+      exit(1);
+    }
+
+    if (ba_reader_open_file(rd, argv[2]) < 0) {
+      perror(argv[2]);
+      exit(1);
+    }
+
+    fprintf(stdout, "Entry Name: Size\n");
+
+    uint32_t size = ba_reader_size(rd);
+    for (ba_id_t id = 0; id < size; id++) {
+      const char *name;
+      uint64_t len;
+      ba_reader_entry_name(rd, id, &name, &len);
+      uint64_t esize = ba_reader_entry_size(rd, id);
+
+      fprintf(stdout, "\"%.*s\": %llu\n", (int)len, name, esize);
+    }
+  }
+
   case 'x': {
     if (argc < 3) {
       print_help(argv[0]);
@@ -170,7 +201,13 @@ int main(int argc, char **argv) {
     }
 
     for (int i = 3; i < argc; i++) {
-      uint64_t size = ba_reader_size(rd, argv[i], 0);
+      ba_id_t id = ba_reader_find_entry(rd, argv[i], 0);
+      if (id == BA_ENTRY_INVALID) {
+        perror(argv[i]);
+        continue;
+      }
+
+      uint64_t size = ba_reader_entry_size(rd, id);
       if (size == 0) {
         perror(argv[i]);
         continue;
@@ -181,7 +218,7 @@ int main(int argc, char **argv) {
         continue;
       }
 
-      if (ba_reader_read(rd, argv[i], 0, ptr) < 0) {
+      if (ba_reader_read(rd, id, ptr) < 0) {
         free(ptr);
         perror(argv[i]);
         continue;

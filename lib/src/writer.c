@@ -11,7 +11,6 @@
 #ifdef _WIN32
 #define fseeko _fseeki64
 #define ftello _ftelli64
-#define strdup _strdup
 #endif
 
 struct ba_entry_column {
@@ -153,20 +152,21 @@ int ba_writer_write(ba_writer_t *wr, const char *filename) {
     return -1;
   }
 
-  struct ba_archive_header header = {0};
-  header.sign = BA_SIGNATURE;
-  header.ensz = wr->entry_size;
-
   FILE *fp = fopen(filename, "wb");
   if (fp == NULL)
     return -1;
 
   if (fseeko(fp,
-             sizeof(header) + wr->entry_size * sizeof(struct ba_entry_header),
+             sizeof(struct ba_archive_header) +
+                 wr->entry_size * sizeof(struct ba_entry_header),
              SEEK_SET) < 0) {
     fclose(fp);
     return -1;
   }
+
+  struct ba_archive_header header = {0};
+  header.sign = BA_SIGNATURE;
+  header.ensz = wr->entry_size;
 
   struct ba_entry_header *entry_headers =
       calloc(wr->entry_size, sizeof(*entry_headers));

@@ -116,49 +116,64 @@ int ba_reader_open_file(ba_reader_t *rd, const char *filename) {
   return ret;
 }
 
-uint64_t ba_reader_size(const ba_reader_t *rd, const char *entry,
-                        uint64_t entry_len) {
-  if (rd == NULL || entry == NULL) {
+uint32_t ba_reader_size(const ba_reader_t *rd) {
+  if (rd == NULL) {
     errno = EINVAL;
     return 0;
+  }
+
+  return rd->ahdr->ensz;
+}
+
+ba_id_t ba_reader_find_entry(const ba_reader_t *rd, const char *entry,
+                             uint64_t entry_len) {
+  if (rd == NULL || entry == NULL) {
+    errno = EINVAL;
+    return BA_ENTRY_INVALID;
   }
 
   if (entry_len == 0)
     entry_len = strlen(entry);
 
-  uint32_t index;
-  for (index = 0; index < rd->ahdr->ensz; index++)
-    if (entry_len == rd->ehdr[index].tlen &&
-        strncmp(entry, &rd->tble[rd->ehdr[index].tidx], rd->ehdr[index].tlen) ==
-            0)
+  ba_id_t id;
+  for (id = 0; id < rd->ahdr->ensz; id++)
+    if (entry_len == rd->ehdr[id].tlen &&
+        strncmp(entry, &rd->tble[rd->ehdr[id].tidx], rd->ehdr[id].tlen) == 0)
       break;
-  if (index >= rd->ahdr->ensz) {
+  if (id >= rd->ahdr->ensz) {
     errno = ENOENT;
-    return 0;
+    return BA_ENTRY_INVALID;
   }
 
-  return rd->ehdr[index].bosz;
+  return id;
 }
 
-int ba_reader_read(ba_reader_t *rd, const char *entry, uint64_t entry_len,
-                   void *ptr) {
-  if (rd == NULL || entry == NULL || ptr == NULL) {
+int ba_reader_entry_name(const ba_reader_t *rd, ba_id_t id, const char **str,
+                         uint64_t *len) {
+  if (rd == NULL || id >= rd->ahdr->ensz || str == NULL || len == NULL) {
     errno = EINVAL;
     return -1;
   }
 
-  if (entry_len == 0)
-    entry_len = strlen(entry);
+  *str = &rd->tble[rd->ehdr[id].tidx];
+  *len = rd->ehdr[id].tlen;
 
-  uint32_t index;
-  for (index = 0; index < rd->ahdr->ensz; index++)
-    if (entry_len == rd->ehdr[index].tlen &&
-        strncmp(entry, &rd->tble[rd->ehdr[index].tidx], rd->ehdr[index].tlen) ==
-            0)
-      break;
-  if (index >= rd->ahdr->ensz) {
-    errno = ENOENT;
+  return 0;
+}
+
+uint64_t ba_reader_entry_size(const ba_reader_t *rd, ba_id_t id) {
+  if (rd == NULL || id >= rd->ahdr->ensz) {
+    errno = EINVAL;
     return 0;
+  }
+
+  return rd->ehdr[id].bosz;
+}
+
+int ba_reader_read(ba_reader_t *rd, ba_id_t id, void *ptr) {
+  if (rd == NULL || id >= rd->ahdr->ensz || ptr == NULL) {
+    errno = EINVAL;
+    return -1;
   }
 
   z_stream strm = {0};
@@ -167,10 +182,10 @@ int ba_reader_read(ba_reader_t *rd, const char *entry, uint64_t entry_len,
     return -1;
   }
 
-  strm.next_in = &((uint8_t *)rd->data)[rd->ehdr[index].boff];
-  strm.avail_in = rd->ehdr[index].bcsz;
+  strm.next_in = &((uint8_t *)rd->data)[rd->ehdr[id].boff];
+  strm.avail_in = rd->ehdr[id].bcsz;
   strm.next_out = ptr;
-  strm.avail_out = rd->ehdr[index].bosz;
+  strm.avail_out = rd->ehdr[id].bosz;
 
   do {
     int ret = inflate(&strm, Z_FINISH);
