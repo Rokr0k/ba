@@ -164,13 +164,13 @@ int main(int argc, char **argv) {
       exit(1);
     }
 
-    if (ba_reader_open(rd, argv[2]) < 0) {
+    if (ba_reader_open_file(rd, argv[2]) < 0) {
       perror(argv[2]);
       exit(1);
     }
 
     for (int i = 3; i < argc; i++) {
-      uint64_t size = ba_reader_size(rd, argv[i]);
+      uint64_t size = ba_reader_size(rd, argv[i], 0);
       if (size == 0) {
         perror(argv[i]);
         continue;
@@ -181,7 +181,7 @@ int main(int argc, char **argv) {
         continue;
       }
 
-      if (ba_reader_read(rd, argv[i], ptr) < 0) {
+      if (ba_reader_read(rd, argv[i], 0, ptr) < 0) {
         free(ptr);
         perror(argv[i]);
         continue;

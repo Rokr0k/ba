@@ -1,4 +1,3 @@
-#include "hash.h"
 #include "headers.h"
 #include "signature.h"
 #include <ba/writer.h>
@@ -16,13 +15,14 @@
 #endif
 
 struct ba_entry_column {
-  uint64_t key;
+  char *name;
+  uint64_t nlen;
   void *ptr;
   uint64_t size;
 };
 
 struct ba_writer {
-  struct ba_archive_header header;
+  uint32_t entry_size;
   uint32_t entry_cap;
   struct ba_entry_column *entries;
 };
@@ -37,8 +37,7 @@ int ba_writer_alloc(ba_writer_t **wr) {
   if (*wr == NULL)
     return -1;
 
-  (*wr)->header.signature = BA_SIGNATURE;
-  (*wr)->header.entry_size = 0;
+  (*wr)->entry_size = 0;
   (*wr)->entry_cap = 1;
   (*wr)->entries = calloc((*wr)->entry_cap, sizeof(*(*wr)->entries));
   if ((*wr)->entries == NULL) {
@@ -56,8 +55,10 @@ void ba_writer_free(ba_writer_t **wr) {
     return;
   }
 
-  for (uint32_t i = 0; i < (*wr)->header.entry_size; i++)
+  for (uint32_t i = 0; i < (*wr)->entry_size; i++) {
+    free((*wr)->entries[i].name);
     free((*wr)->entries[i].ptr);
+  }
 
   free((*wr)->entries);
 
@@ -65,26 +66,35 @@ void ba_writer_free(ba_writer_t **wr) {
   *wr = NULL;
 }
 
-int ba_writer_add(ba_writer_t *wr, const char *entry, const void *ptr,
-                  uint64_t size) {
+int ba_writer_add(ba_writer_t *wr, const char *entry, uint64_t entry_len,
+                  const void *ptr, uint64_t size) {
   if (wr == NULL || ptr == NULL || size == 0) {
     errno = EINVAL;
     return -1;
   }
 
-  struct ba_entry_column col;
-  col.key = ba_hash(entry);
-  col.ptr = malloc(size);
-  if (col.ptr == NULL)
-    return -1;
-  memcpy(col.ptr, ptr, size);
-  col.size = size;
+  if (entry_len == 0)
+    entry_len = strlen(entry);
 
-  if (wr->header.entry_size >= wr->entry_cap) {
+  struct ba_entry_column col = {0};
+
+  col.name = malloc(entry_len);
+  col.ptr = malloc(size);
+  if (col.name == NULL || col.ptr == NULL) {
+    free(col.name);
+    free(col.ptr);
+    return -1;
+  }
+
+  strncpy(col.name, entry, col.nlen = entry_len);
+  memcpy(col.ptr, ptr, col.size = size);
+
+  if (wr->entry_size >= wr->entry_cap) {
     uint32_t new_cap = wr->entry_cap << 1;
     struct ba_entry_column *new_entries =
         realloc(wr->entries, new_cap * sizeof(*wr->entries));
     if (new_entries == NULL) {
+      free(col.name);
       free(col.ptr);
       return -1;
     }
@@ -93,7 +103,7 @@ int ba_writer_add(ba_writer_t *wr, const char *entry, const void *ptr,
     wr->entry_cap = new_cap;
   }
 
-  wr->entries[wr->header.entry_size++] = col;
+  wr->entries[wr->entry_size++] = col;
 
   return 0;
 }
@@ -127,7 +137,7 @@ int ba_writer_add_file(ba_writer_t *wr, const char *filename) {
 
   fclose(fp);
 
-  if (ba_writer_add(wr, filename, ptr, size) < 0) {
+  if (ba_writer_add(wr, filename, 0, ptr, size) < 0) {
     free(ptr);
     return -1;
   }
@@ -143,39 +153,53 @@ int ba_writer_write(ba_writer_t *wr, const char *filename) {
     return -1;
   }
 
+  struct ba_archive_header header = {0};
+  header.sign = BA_SIGNATURE;
+  header.ensz = wr->entry_size;
+
   FILE *fp = fopen(filename, "wb");
   if (fp == NULL)
     return -1;
 
   if (fseeko(fp,
-             sizeof(wr->header) +
-                 wr->header.entry_size * sizeof(struct ba_entry_header),
+             sizeof(header) + wr->entry_size * sizeof(struct ba_entry_header),
              SEEK_SET) < 0) {
     fclose(fp);
     return -1;
   }
 
   struct ba_entry_header *entry_headers =
-      calloc(wr->header.entry_size, sizeof(*entry_headers));
+      calloc(wr->entry_size, sizeof(*entry_headers));
   if (entry_headers == NULL) {
     fclose(fp);
     return -1;
   }
 
+  for (uint32_t i = 0; i < wr->entry_size; i++) {
+    if (fwrite(wr->entries[i].name, 1, wr->entries[i].nlen, fp) <
+        wr->entries[i].nlen) {
+      free(entry_headers);
+      fclose(fp);
+      return -1;
+    }
+
+    entry_headers[i].tidx = header.tbsz;
+    entry_headers[i].tlen = wr->entries[i].nlen;
+
+    header.tbsz += entry_headers[i].tlen;
+  }
+
   z_stream strm = {0};
 
-  for (uint32_t i = 0; i < wr->header.entry_size; i++) {
-    struct ba_entry_column column = wr->entries[i];
-    struct ba_entry_header *header = &entry_headers[i];
-
+  for (uint32_t i = 0; i < wr->entry_size; i++) {
     if (deflateInit(&strm, Z_DEFAULT_COMPRESSION) != Z_OK) {
       free(entry_headers);
       fclose(fp);
       return -1;
     }
 
-    uint64_t size_in = column.size;
-    void *buffer_in = column.ptr;
+    uint64_t size_in = wr->entries[i].size;
+    void *buffer_in = wr->entries[i].ptr;
     uint64_t size_out = deflateBound(&strm, size_in);
     void *buffer_out = malloc(size_out);
     if (buffer_out == NULL) {
@@ -204,12 +228,12 @@ int ba_writer_write(ba_writer_t *wr, const char *filename) {
       }
     } while (1);
 
-    header->key = column.key;
-    header->offset = ftello(fp);
-    header->o_size = strm.total_in;
-    header->c_size = strm.total_out;
+    entry_headers[i].boff = ftello(fp);
+    entry_headers[i].bosz = strm.total_in;
+    entry_headers[i].bcsz = strm.total_out;
 
-    if (fwrite(buffer_out, 1, header->c_size, fp) < header->c_size) {
+    if (fwrite(buffer_out, 1, entry_headers[i].bcsz, fp) <
+        entry_headers[i].bcsz) {
       deflateEnd(&strm);
       free(buffer_out);
       free(entry_headers);
@@ -227,14 +251,14 @@ int ba_writer_write(ba_writer_t *wr, const char *filename) {
     return -1;
   }
 
-  if (fwrite(&wr->header, sizeof(wr->header), 1, fp) < 1) {
+  if (fwrite(&header, sizeof(header), 1, fp) < 1) {
     free(entry_headers);
     fclose(fp);
     return -1;
   }
 
-  if (fwrite(entry_headers, sizeof(*entry_headers), wr->header.entry_size, fp) <
-      wr->header.entry_size) {
+  if (fwrite(entry_headers, sizeof(*entry_headers), wr->entry_size, fp) <
+      wr->entry_size) {
     free(entry_headers);
     fclose(fp);
     return -1;
