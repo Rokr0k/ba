@@ -34,8 +34,8 @@ static void print_version(const char *arg0) {
           BA_VERSION_MINOR(lib_version), BA_VERSION_PATCH(lib_version));
 }
 
-#ifdef _WIN32
 static int add_files(ba_writer_t *wr, const char *name) {
+#ifdef _WIN32
   WIN32_FIND_DATA ffd;
   HANDLE hFind = INVALID_HANDLE_VALUE;
 
@@ -69,9 +69,7 @@ static int add_files(ba_writer_t *wr, const char *name) {
   FindClose(hFind);
 
   return 0;
-}
 #else
-static int add_files(ba_writer_t *wr, const char *name) {
   DIR *dir = opendir(name);
   if (dir == NULL) {
     perror(name);
@@ -107,8 +105,8 @@ static int add_files(ba_writer_t *wr, const char *name) {
   closedir(dir);
 
   return 0;
-}
 #endif
+}
 
 int main(int argc, char **argv) {
   if (argc < 2) {
@@ -167,7 +165,6 @@ int main(int argc, char **argv) {
 
     if (ba_reader_open_file(rd, argv[2]) < 0) {
       perror(argv[2]);
-      ba_reader_free(&rd);
       exit(1);
     }
 

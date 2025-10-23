@@ -28,7 +28,7 @@ BA_API uint64_t ba_buffer_read(ba_buffer_t *buf, void *ptr, uint64_t size);
 
 BA_API int ba_buffer_write(ba_buffer_t *buf, const void *ptr, uint64_t size);
 
-BA_API int64_t ba_buffer_size(ba_buffer_t *buf);
+BA_API uint64_t ba_buffer_size(ba_buffer_t *buf);
 
 #ifdef __cplusplus
 }

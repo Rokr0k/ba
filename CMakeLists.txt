@@ -12,9 +12,6 @@ include(CMakePackageConfigHelpers)
 
 find_package(ZLIB REQUIRED)
 
-if(WIN32)
-    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
-endif(WIN32)
 
 add_subdirectory("lib")
 add_subdirectory("bin")

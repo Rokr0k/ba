@@ -8,11 +8,6 @@
 #include <sys/stat.h>
 #include <zlib.h>
 
-#ifdef _WIN32
-#define fseeko _fseeki64
-#define ftello _ftelli64
-#endif
-
 struct ba_entry_column {
   char *name;
   uint64_t nlen;
@@ -78,36 +73,19 @@ int ba_writer_add(ba_writer_t *wr, const char *entry, uint64_t entry_len,
     uint32_t new_cap = wr->entry_cap << 1;
     struct ba_entry_column *new_entries =
         realloc(wr->entries, new_cap * sizeof(*wr->entries));
-    if (new_entries == NULL) {
+    if (new_entries == NULL)
       return -1;
-    }
-
     wr->entries = new_entries;
     wr->entry_cap = new_cap;
   }
 
-  struct ba_entry_column col = {0};
-
-  if (ba_buffer_init(&col.buf) < 0)
-    return -1;
-
-  char buffer[1 << 16];
-  uint64_t read;
-  while ((read = ba_buffer_read(buf, buffer, sizeof(buffer))) > 0) {
-    if (ba_buffer_write(col.buf, buffer, read) < 0) {
-      ba_buffer_free(&col.buf);
-      return -1;
-    }
-  }
+  struct ba_entry_column col;
 
   col.name = malloc(entry_len);
-  if (col.name == NULL) {
-    free(col.name);
-    ba_buffer_free(&col.buf);
+  if (col.name == NULL)
     return -1;
-  }
-
   strncpy(col.name, entry, col.nlen = entry_len);
+  col.buf = buf;
 
   wr->entries[wr->entry_size++] = col;
 
@@ -128,8 +106,6 @@ int ba_writer_add_file(ba_writer_t *wr, const char *filename) {
     ba_buffer_free(&buf);
     return -1;
   }
-
-  ba_buffer_free(&buf);
 
   return 0;
 }

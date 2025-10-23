@@ -3,10 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef _WIN32
-#define fseeko _fseeki64
-#endif
+#include <sys/stat.h>
+#include <sys/types.h>
 
 struct ba_buffer {
   void (*free)(void *arg);
@@ -14,6 +12,7 @@ struct ba_buffer {
   int64_t (*tell)(void *arg);
   uint64_t (*read)(void *arg, void *ptr, uint64_t size);
   int (*write)(void *arg, const void *ptr, uint64_t size);
+  uint64_t (*size)(void *arg);
 
   void *arg;
 };
@@ -27,6 +26,7 @@ struct ba_buffer {
     BA_BUF_ASSI(buf, pfx, tell)                                                \
     BA_BUF_ASSI(buf, pfx, read)                                                \
     BA_BUF_ASSI(buf, pfx, write)                                               \
+    BA_BUF_ASSI(buf, pfx, size)                                                \
   } while (0)
 
 struct ba_buffer_ctx_mem {
@@ -151,6 +151,12 @@ static int mem_write(void *arg, const void *ptr, uint64_t size) {
   return 0;
 }
 
+static uint64_t mem_size(void *arg) {
+  struct ba_buffer_ctx_mem *ctx = arg;
+
+  return ctx->size;
+}
+
 static void fp_free(void *arg) {
   FILE *fp = arg;
 
@@ -160,13 +166,21 @@ static void fp_free(void *arg) {
 static int fp_seek(void *arg, int64_t pos, int whence) {
   FILE *fp = arg;
 
+#ifdef _WIN32
+  return -(_fseeki64(fp, pos, whence) != 0);
+#else
   return -(fseeko(fp, pos, whence) != 0);
+#endif
 }
 
 static int64_t fp_tell(void *arg) {
   FILE *fp = arg;
 
+#ifdef _WIN32
+  return _ftelli64(fp);
+#else
   return ftello(fp);
+#endif
 }
 
 static uint64_t fp_read(void *arg, void *ptr, uint64_t size) {
@@ -179,6 +193,32 @@ static int fp_write(void *arg, const void *ptr, uint64_t size) {
   FILE *fp = arg;
 
   return -(fwrite(ptr, 1, size, fp) < size);
+}
+
+static uint64_t fp_size(void *arg) {
+  FILE *fp = arg;
+
+#ifdef _WIN32
+  int fd = _fileno(fp);
+  if (fd == -1)
+    return 0;
+
+  struct _stat64 stat;
+  if (_fstat64(fd, &stat) < 0)
+    return 0;
+
+  return stat.st_size;
+#else
+  int fd = fileno(fp);
+  if (fd == -1)
+    return 0;
+
+  struct stat stat;
+  if (fstat(fd, &stat) < 0)
+    return 0;
+
+  return stat.st_size;
+#endif
 }
 
 int ba_buffer_init(ba_buffer_t **buf) {
@@ -249,11 +289,20 @@ int ba_buffer_init_file(ba_buffer_t **buf, const char *filename,
   if (*buf == NULL)
     return -1;
 
-  FILE *fp = fopen(filename, mode);
+  FILE *fp = NULL;
+
+#ifdef _WIN32
+  if (fopen_s(&fp, filename, mode) != 0) {
+    free(*buf);
+    return -1;
+  }
+#else
+  fp = fopen(filename, mode);
   if (fp == NULL) {
     free(*buf);
     return -1;
   }
+#endif
 
   BA_BUF_INIT(*buf, fp);
   (*buf)->arg = fp;
@@ -336,14 +385,16 @@ int ba_buffer_write(ba_buffer_t *buf, const void *ptr, uint64_t size) {
   return buf->write(buf->arg, ptr, size);
 }
 
-int64_t ba_buffer_size(ba_buffer_t *buf) {
+uint64_t ba_buffer_size(ba_buffer_t *buf) {
   if (buf == NULL) {
     errno = EINVAL;
-    return -1LL;
+    return 0;
   }
 
-  if (ba_buffer_seek(buf, 0, SEEK_END) < 0)
-    return -1LL;
+  if (buf->size == NULL) {
+    errno = EOPNOTSUPP;
+    return 0;
+  }
 
-  return ba_buffer_tell(buf);
+  return buf->size(buf->arg);
 }
