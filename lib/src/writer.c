@@ -84,7 +84,7 @@ int ba_writer_add(ba_writer_t *wr, const char *entry, uint64_t entry_len,
   col.name = malloc(entry_len);
   if (col.name == NULL)
     return -1;
-  strncpy(col.name, entry, col.nlen = entry_len);
+  memcpy(col.name, entry, col.nlen = entry_len);
   col.buf = buf;
 
   wr->entries[wr->entry_size++] = col;

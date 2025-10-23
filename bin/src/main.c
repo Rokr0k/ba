@@ -231,21 +231,21 @@ int main(int argc, char **argv) {
       else
         name++;
 
-      FILE *fp = fopen(name, "wb");
-      if (fp == NULL) {
+      ba_buffer_t *buf;
+      if (ba_buffer_init_file(&buf, name, "wb") < 0) {
         free(ptr);
         perror(name);
         continue;
       }
 
-      if (fwrite(ptr, 1, size, fp) < size) {
-        fclose(fp);
+      if (ba_buffer_write(buf, ptr, size) < 0) {
+        ba_buffer_free(&buf);
         free(ptr);
         perror(name);
         continue;
       }
 
-      fclose(fp);
+      ba_buffer_free(&buf);
       free(ptr);
 
       perror(argv[i]);
