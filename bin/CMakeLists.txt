@@ -1,25 +1,12 @@
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/config.h.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/config.h"
-)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/config.h.in"
+               "${CMAKE_CURRENT_BINARY_DIR}/config.h")
 
-add_executable(app
-    "src/main.c"
-)
+add_executable(app "src/main.c")
 
-target_include_directories(app
-    PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}"
-)
+target_include_directories(app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
-set_target_properties(app PROPERTIES
-    OUTPUT_NAME "ba"
-    EXPORT_NAME "APP"
-)
+set_target_properties(app PROPERTIES OUTPUT_NAME "ba" EXPORT_NAME "APP")
 
-target_link_libraries(app
-    PRIVATE
-    BA::BA
-)
+target_link_libraries(app PRIVATE BA::BA)
 
 add_executable(BA::APP ALIAS app)
